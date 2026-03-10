@@ -451,6 +451,7 @@ def neg_log_likelihood(theta, Pij, source_events, mc_min):
         'source_events must have index with name "source_id"'
     )
 
+    # Get parameters from dictionary (same as in config file)
     log10_k0, a, log10_c, omega, log10_tau, log10_d, gamma, rho = theta
 
     c = np.power(10, log10_c)
@@ -974,6 +975,10 @@ class ETASParameterCalculation:
 
         self.logger.info("PREPARING {}".format(self.name))
         self.logger.info("  filtering catalog...")
+
+        ###############################################
+        # Step 1 - filter the catalog to time and spatial limits
+        ###############################################
         self.catalog = self.filter_catalog(self.catalog)
 
         if self.__theta_0 is not None:
@@ -982,13 +987,28 @@ class ETASParameterCalculation:
             self.logger.info("  randomly chosing initial values for theta")
             self.__theta_0 = create_initial_values()
 
+        ###############################################
+        # Step 2 - compute distances, expensive
+        # Also computes Gutenburg-Ricther beta parameter
+        ###############################################
         self.logger.info("  calculating distances...")
         self.distances = self.calculate_distances()
+
+        ###############################################
+        # Step 3 - target events - after t_start
+        # source_events - > m_c, can be before t_start
+        ###############################################
 
         self.logger.info("  preparing source and target events..")
         self.target_events = self.prepare_target_events()
         self.source_events = self.prepare_source_events()
 
+        ###############################################
+        # Step 4 - estimate beta:
+        # fixed, b-positive, or tinti (Tinti & Mulargia 1987)
+        # https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2020JB021027
+        #https://pubs.geoscienceworld.org/ssa/bssa/article-abstract/77/6/2125/119039/Confidence-intervals-of-b-values-for-grouped
+        ###############################################
         if isinstance(self.beta, float):
             self.b_positive = False
             self.logger.info(
@@ -1120,10 +1140,15 @@ class ETASParameterCalculation:
         diff_to_before = 100
         i = 0
         theta_old = self.__theta_0[:]
-
+        
+        #############################################################
+        # Main Inversion Loop
+        ###############################################################
         while diff_to_before >= 0.001:
             self.logger.info("  iteration {}".format(i))
-
+            ##########################################################
+            # Step 1 - Expectation
+            ##########################################################
             self.logger.debug("    expectation step")
             (
                 self.pij,
@@ -1137,6 +1162,9 @@ class ETASParameterCalculation:
             self.logger.debug("      i_hat: {}".format(self.i_hat))
 
             self.logger.debug("    optimizing parameters")
+            ##########################################################
+            # Step 2 - Optimize Parameters
+            ##########################################################
             self.__theta = self.optimize_parameters(theta_old)
             if self.free_productivity:
                 self.calc_a_k0_from_kappa()
@@ -1146,6 +1174,9 @@ class ETASParameterCalculation:
                 pprint.pformat(parameter_array2dict(self.__theta), indent=4)
             )
 
+            ##########################################################
+            # Step 3 - Convergence criterion
+            ##########################################################
             diff_to_before = calc_diff_to_before(theta_old, self.__theta)
             self.logger.info(
                 "    difference to previous: {}".format(diff_to_before))
@@ -1154,6 +1185,7 @@ class ETASParameterCalculation:
                 br = branching_ratio(theta_old, self.beta)
                 self.logger.debug("    branching ratio: {}".format(br))
             except BaseException:
+
                 self.logger.debug("    branching ratio not calculated")
             theta_old = self.__theta[:]
             if self.free_productivity:
@@ -1165,6 +1197,9 @@ class ETASParameterCalculation:
             "  stopping here. converged after " "{} iterations.".format(i))
         self.i = i
 
+        ##########################################################
+        # Step 3 - Final Expectation (after full loop)
+        ##########################################################
         self.logger.info("    last expectation step")
         (
             self.pij,
@@ -1708,6 +1743,7 @@ class ETASParameterCalculation:
         return res_df
 
     def expectation_step(self, theta, mc_min):
+        # Main inversion 
         calc_start = dt.datetime.now()
         log10_mu = theta[0]
         mu = np.power(10, log10_mu)
@@ -1731,6 +1767,10 @@ class ETASParameterCalculation:
             if self.free_productivity
             else {"source_kappa": None}
         )
+        ##########################################################
+        # Step 1 - triggering kernel - probability that source i triggered 
+        # target j
+        ##########################################################
         Pij_0["gij"] = triggering_kernel(
             [
                 Pij_0["time_distance"],
@@ -1741,15 +1781,23 @@ class ETASParameterCalculation:
             [theta, mc_min],
         )
 
-        # responsibility factor for invisible triggering events
+        ##########################################################
+        # Step 2 - responsibility_factor - correct for below m_c
+        # events that were triggered but not observed
+        ##########################################################
         Pij_0["xi_plus_1"] = responsibility_factor(
             theta, self.beta, Pij_0["source_completeness_above_ref"]
         )
+
+        ##########################################################
+        # Step 3 -observation factor - correct for below m_c target events
+        ##########################################################
         Pij_0["zeta_plus_1"] = observation_factor(
             self.beta, Pij_0["target_completeness_above_ref"]
         )
         # calculate muj for each target. currently constant, could be improved
         target_events_0 = self.target_events.copy()
+
         target_events_0["mu"] = mu
         if self.free_background:
             target_events_0["mu"] = (

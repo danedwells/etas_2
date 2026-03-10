@@ -1,0 +1,26 @@
+{
+  "fn_catalog": "../input_data/example_catalog.csv",  // input earthquake catalog
+  "data_path": "../output_data/",                      // output directory
+  "auxiliary_start": "1971-01-01 00:00:00",           // catalog starts here, but events are only used to condition the model (build up aftershock history) before timewindow_start
+  "timewindow_start": "1981-01-01 00:00:00",          // model fitting begins here
+  "timewindow_end": "2007-01-01 00:00:00",            // model fitting ends here
+  "testwindow_end": "2021-01-01 00:00:00",            // forecast evaluation ends here
+
+  "theta_0": {                    // initial ETAS parameter guess for optimisation
+    "log10_mu": -5.8,            // log10 of background seismicity rate μ (events/day/km²)
+    "log10_k0": -2.6,            // log10 of aftershock productivity constant k0; scales expected number of aftershocks per event (A in the condensed model)
+    "a": 1.8,                    // magnitude scaling exponent for productivity (alpha in condensed model); larger a → bigger quakes trigger disproportionately more aftershocks
+    "log10_c": -2.5,             // log10 of Omori c parameter (days); ~0.003 days, controls the early-time flattening of the aftershock rate
+    "omega": -0.02,              // Omori decay shape; related to p by omega = p - 1, so this corresponds to p ≈ 0.98; negative omega requires the tapered sampler
+    "log10_tau": 3.5,            // log10 of exponential taper timescale (~3163 days); aftershock rate decays exponentially beyond this time, making the distribution integrable for omega < 0
+    "log10_d": -0.85,            // log10 of base spatial length scale d (km); ~0.14 km, controls how tightly clustered aftershocks are around the parent
+    "gamma": 1.3,                // magnitude scaling exponent for spatial extent; larger gamma → aftershocks of large events spread over a wider area
+    "rho": 0.66                  // spatial decay exponent; controls how steeply aftershock density falls off with distance
+  },
+
+  "mc": 3.6,                     // magnitude of completeness; events below this are not reliably recorded and are excluded
+  "delta_m": 0.1,                // magnitude bin width for discretised MFD
+  "coppersmith_multiplier": 100, // scales the rupture length estimate (Wells & Coppersmith) to define the spatial radius within which aftershocks are associated to a parent
+  "shape_coords": "../input_data/california_shape.npy", // polygon boundary for the study region (in lat/lon convention used throughout)
+  "id": "0"                      // run identifier
+}

@@ -8,6 +8,7 @@
 # Leila Mizrahi, Shyam Nandan, Stefan Wiemer;
 # The Effect of Declustering on the Size Distribution of Mainshocks.
 # Seismological Research Letters 2021; doi: https://doi.org/10.1785/0220200231
+# i.e., Mizrahi et al, (2021)
 ##############################################################################
 
 import datetime as dt
@@ -56,7 +57,25 @@ def bin_to_precision(x: np.ndarray | list, delta_x: float = 0.1) -> np.ndarray:
 
 
 def inverse_upper_gamma_ext(a, y):
-    # TODO: find a more elegant way to do this
+    """
+    Computes the inverse of the extended upper incomplete gamma function
+    Γ(a, x) with respect to x, i.e. finds x such that Γ(a, x) = y.
+    Handles both positive and negative values of a:
+
+    - For a > 0: uses scipy's gammainccinv (regularised inverse), rescaled
+      by Γ(a) to match the unregularised convention used here.
+    - For a ≤ 0: the standard scipy inverse is unavailable, so pynverse is
+      used for numerical function inversion. Any NaN results from pynverse
+      are patched by element-wise Nelder-Mead minimisation of (Γ(a,x) - y)².
+
+    Args:
+        a : float — shape parameter of the incomplete gamma function;
+                    negative values arise in ETAS with omega = p - 1 < 0 (p < 1)
+        y : array — target values to invert (i.e. Γ(a, x) = y)
+
+    Returns:
+        array — x values satisfying Γ(a, x) = y
+    """
     if a > 0:
         return gammainccinv(a, y / gamma_func(a))
     else:
@@ -68,7 +87,6 @@ def inverse_upper_gamma_ext(a, y):
         def uge(x):
             return upper_gamma_ext(a, x)
 
-        # numerical inverse
         def num_inv(a, y):
             def diff(x, xhat):
                 xt = upper_gamma_ext(a, x)
@@ -87,8 +105,6 @@ def inverse_upper_gamma_ext(a, y):
         result = inversefunc(uge, y)
         warnings.filterwarnings("default")
 
-        # where inversefunc was unable to calculate a result, calculate
-        # numerical approximation
         nan_idxs = np.argwhere(np.isnan(result)).flatten()
         if len(nan_idxs) > 0:
             num_res = num_inv(a, y[nan_idxs])
@@ -227,12 +243,25 @@ def parameters_from_etes_formulation(etes_par, par, delta_m_ref=0):
 
 
 def simulate_aftershock_time(log10_c, omega, log10_tau, size=1):
-    # time delay in days
+    """
+    Simulates aftershock occurrence times by exact inverse transform sampling
+    from the tapered Omori-Utsu distribution. The CDF is inverted using the
+    upper incomplete gamma function: t = Γ⁻¹(-ω, (1-u)·Γ(-ω, c/τ)) · τ - c,
+    where u ~ Uniform(0,1). The exponential taper at scale τ ensures the
+    distribution is proper (integrable), unlike the pure power law.
 
-    # this function makes sense. I have panicked and checked several times.
-    # if you plot a histogram of simulated times with logarithmic bins,
-    # make sure to account for bin width!
+    Note: when plotting simulated times with log-spaced bins, divide counts
+    by bin width to recover the correct density shape.
 
+    Args:
+        log10_c   : float — log10 of Omori c parameter (days)
+        omega     : float — decay shape parameter (Omori p - 1)
+        log10_tau : float — log10 of exponential taper timescale (days)
+        size      : int   — number of samples (default 1)
+
+    Returns:
+        array — sampled aftershock delay times in days
+    """
     c = np.power(10, log10_c)
     tau = np.power(10, log10_tau)
     y = np.random.uniform(size=size)
@@ -246,11 +275,24 @@ def simulate_aftershock_time(log10_c, omega, log10_tau, size=1):
 
 
 def simulate_aftershock_time_untapered(log10_c, omega, size=1):
-    # time delay in days
+    """
+    Simulates aftershock times from the pure (untapered) Omori-Utsu power-law
+    distribution via direct inversion: t = (1-u)^(-1/ω) · c - c, where
+    u ~ Uniform(0,1). This is the closed-form inverse CDF of the power law,
+    with no exponential taper applied.
 
-    # TODO: find a way to sample y values with higher precision that 1e-15
-    # otherwise there is a maximum time delay that will be sampled...
+    Note: float64 precision (~1e-15) limits the maximum time that can be
+    sampled — very long inter-event times are truncated by this floor.
 
+    Args:
+        log10_c : float — log10 of Omori c parameter (days)
+        omega   : float — decay shape parameter (Omori p - 1)
+        size    : int   — number of samples (default 1)
+
+    Returns:
+        array — sampled aftershock delay times in days
+    """
+    assert log10_c > 0
     c = np.power(10, log10_c)
     y = np.random.uniform(size=size)
 
@@ -258,6 +300,21 @@ def simulate_aftershock_time_untapered(log10_c, omega, size=1):
 
 
 def inv_time_cdf_approx(p, c, tau, omega):
+    """
+    Inverse CDF (quantile function) for the Omori-Utsu aftershock time distribution,
+    using a piecewise approximation split at tau. Maps uniform random samples to
+    aftershock delay times by inverting the CDF analytically in two regimes:
+    a power-law regime for small times (p < tau) and an exponential tail for large times.
+
+    Args:
+        p     : float or array — uniform random sample(s) in [0, 1]
+        c     : float — Omori c parameter (small time offset, days)
+        tau   : float — crossover time between power-law and exponential regimes (days)
+        omega : float — decay shape parameter (related to Omori p via omega = p - 1)
+
+    Returns:
+        float or array — aftershock delay time(s) in days
+    """
     part_a = -1 / omega * (np.power(tau + c, -omega) - np.power(c, -omega))
     part_b = np.exp(1) * np.power(tau + c, -(1 + omega)) * (tau / np.exp(1))
     k1 = 1 / (part_a + part_b)
@@ -272,7 +329,19 @@ def inv_time_cdf_approx(p, c, tau, omega):
 
 
 def simulate_aftershock_time_approx(log10_c, omega, log10_tau, size=1):
-    # time delay in days
+    """
+    Simulates aftershock occurrence times by inverse transform sampling from
+    the approximate Omori-Utsu time distribution.
+
+    Args:
+        log10_c   : float — log10 of Omori c parameter (days)
+        omega     : float — decay shape parameter
+        log10_tau : float — log10 of crossover time tau (days)
+        size      : int   — number of aftershock times to sample (default 1)
+
+    Returns:
+        float or array — sampled aftershock delay time(s) in days
+    """
     c = np.power(10, log10_c)
     tau = np.power(10, log10_tau)
     y = np.random.uniform(size=size)
@@ -281,7 +350,22 @@ def simulate_aftershock_time_approx(log10_c, omega, log10_tau, size=1):
 
 
 def simulate_aftershock_place(log10_d, gamma, rho, mi, mc):
-    # x and y offset in km
+    """
+    Simulates aftershock locations by sampling radii from a power-law spatial
+    kernel scaled by magnitude, then distributing uniformly in azimuth.
+    The spatial kernel has the form: P(r) ∝ (r² + d_g)^(-rho-1), where
+    d_g = d * exp(gamma * (mi - mc)) is the magnitude-scaled length scale.
+
+    Args:
+        log10_d : float — log10 of base length scale d (km)
+        gamma   : float — magnitude scaling exponent for rupture area (bigger -> faster mag decay)
+        rho     : float — spatial decay exponent (larger -> faster spatial decay)
+        mi      : array — magnitudes of triggering earthquakes
+        mc      : float — magnitude of completeness (reference magnitude)
+
+    Returns:
+        x, y : arrays — east and north offsets in km from the triggering earthquake
+    """
     d = np.power(10, log10_d)
     d_g = d * np.exp(gamma * (mi - mc))
     y_r = np.random.uniform(size=len(mi))
@@ -295,7 +379,20 @@ def simulate_aftershock_place(log10_d, gamma, rho, mi, mc):
 
 
 def simulate_aftershock_radius(log10_d, gamma, rho, mi, mc):
-    # x and y offset in km
+    """
+    Simulates aftershock rupture radii using the same power-law spatial kernel
+    as simulate_aftershock_place, without converting to x/y coordinates.
+
+    Args:
+        log10_d : float — log10 of base length scale d (km)
+        gamma   : float — magnitude scaling exponent for rupture area
+        rho     : float — spatial decay exponent
+        mi      : array — magnitudes of triggering earthquakes
+        mc      : float — magnitude of completeness (reference magnitude)
+
+    Returns:
+        r : array — sampled radii in km from each triggering earthquake
+    """
     d = np.power(10, log10_d)
     d_g = d * np.exp(gamma * (mi - mc))
     y_r = np.random.uniform(size=len(mi))
@@ -366,10 +463,14 @@ def generate_background_events(
     theta = parameter_dict2array(parameters)
     theta_without_mu = theta[2:]
 
+    #######################################
+    # Get area of interest - rectangle
+    #######################################
     area = polygon_surface(polygon)
     timewindow_length = to_days(timewindow_end - timewindow_start)
 
     # area of surrounding rectangle
+    # NOTE - geopandas expects (lon, lat), not (lat,lon). As long as its consistent throughout, shouldn't mater...
     min_lat, min_lon, max_lat, max_lon = polygon.bounds
     coords = [
         [min_lat, min_lon],
@@ -380,7 +481,9 @@ def generate_background_events(
     rectangle = Polygon(coords)
     rectangle_area = polygon_surface(rectangle)
 
-    # number of background events
+    #######################################
+    # number of background events from poisson distribution (pg 8, supplementary)
+    #######################################
     expected_n_background = (
         np.power(10, parameters["log10_mu"]) * area * timewindow_length
     )
@@ -395,14 +498,19 @@ def generate_background_events(
     logger.info(
         f"  generating {n_generate} to throw away those outside the polygon")
 
-    # define dataframe with background events
+    #######################################
+    # Make and define dataframe with background events
+    #######################################
     catalog = pd.DataFrame(
         None,
         columns=["latitude", "longitude", "time",
                  "magnitude", "parent", "generation"],
     )
 
-    # generate lat, long
+    #######################################
+    # Get concrete lat/lon for the simulated event
+    # If passed, use passed lat_lons
+    #######################################
     if background_probs is not None:
         catalog["latitude"], catalog["longitude"] = \
             simulate_background_location(background_lats,
@@ -414,13 +522,13 @@ def generate_background_events(
                                          grid=grid,
                                          n=n_generate,
                                          )
-    else:
+    else: # Otherwise, sample from within defined polygon area.
         catalog["latitude"] = np.random.uniform(
             min_lat, max_lat, size=n_generate)
         catalog["longitude"] = np.random.uniform(
             min_lon, max_lon, size=n_generate)
 
-    catalog = gpd.GeoDataFrame(
+    catalog = gpd.GeoDataFrame( #gpd - geopandas
         catalog, geometry=gpd.points_from_xy(
             catalog.latitude, catalog.longitude)
     )
@@ -455,7 +563,9 @@ def generate_background_events(
         )
         catalog = catalog[catalog.intersects(polygon)].head(n_background)
 
-    # generate time, magnitude
+    #######################################
+    # Get time and magnitude for background events
+    #######################################
     catalog["time"] = [
         timewindow_start + dt.timedelta(days=d)
         for d in np.random.uniform(0, timewindow_length, size=n_background)
@@ -482,7 +592,9 @@ def generate_background_events(
     catalog.index += 1
     catalog["gen_0_parent"] = catalog.index
 
-    # simulate number of aftershocks
+    #######################################
+    # Get simulate number of aftershocks
+    #######################################
     catalog["expected_n_aftershocks"] = expected_aftershocks(
         catalog["magnitude"],
         params=[theta_without_mu, mc - delta_m / 2],
@@ -516,7 +628,9 @@ def generate_aftershocks(
     theta = parameter_dict2array(parameters)
     theta_without_mu = theta[2:]
 
+    #######################################
     # random timedeltas for all aftershocks
+    #######################################
     total_n_aftershocks = sources["n_aftershocks"].sum()
 
     if parameters["log10_tau"] == np.inf:
@@ -562,7 +676,10 @@ def generate_aftershocks(
     if auxiliary_end is not None:
         aftershocks.query("time > @ auxiliary_end", inplace=True)
 
+    #######################################
     # location of aftershock
+    #######################################
+    # Get radii
     aftershocks["radius"] = simulate_aftershock_radius(
         parameters["log10_d"],
         parameters["gamma"],
@@ -570,8 +687,10 @@ def generate_aftershocks(
         aftershocks["parent_magnitude"],
         mc=mc,
     )
+    # Get azimuths
     aftershocks["angle"] = np.random.uniform(
         0, 2 * np.pi, size=len(aftershocks))
+    # Get longitude dist from radius and azimuth
     aftershocks["degree_lon"] = haversine(
         np.radians(aftershocks["parent_latitude"]),
         np.radians(aftershocks["parent_latitude"]),
@@ -579,6 +698,7 @@ def generate_aftershocks(
         np.radians(1),
         earth_radius,
     )
+    # Get latitude dist from raidus and azimuth
     aftershocks["degree_lat"] = haversine(
         np.radians(aftershocks["parent_latitude"] - 0.5),
         np.radians(aftershocks["parent_latitude"] + 0.5),
@@ -586,18 +706,23 @@ def generate_aftershocks(
         np.radians(0),
         earth_radius,
     )
+    # Get actual latitude location
     aftershocks["latitude"] = (
         aftershocks["parent_latitude"]
         + (aftershocks["radius"] * np.cos(aftershocks["angle"]))
         / aftershocks["degree_lat"]
     )
+    # Get actual longitude location
     aftershocks["longitude"] = (
         aftershocks["parent_longitude"]
         + (aftershocks["radius"] * np.sin(aftershocks["angle"]))
         / aftershocks["degree_lon"]
     )
 
-    # as_cols = ["parent", "gen_0_parent", "time", "latitude", "longitude"]
+    #######################################
+    # If there is a defined area, then filter out events outside area (.intersects)
+    # NOTE - geopandas expects (lon, lat), not (lat,lon). As long as its consistent throughout, shouldn't mater...
+     #######################################
     if polygon is not None:
         aftershocks = gpd.GeoDataFrame(
             aftershocks,
@@ -608,12 +733,14 @@ def generate_aftershocks(
 
     aadf = aftershocks.reset_index(drop=True)
 
-    # magnitudes
+    #######################################
+    # magnitudes -either magnitude frequency dist (mfd) by zone, or uniform
+    #######################################
     n_total_aftershocks = len(aadf.index)
-    if mfd_zones is not None:
+    if mfd_zones is not None: # by zone
         zones = zones_from_latlon(aadf["latitude"], aadf["longitude"])
         aadf["magnitude"] = simulate_magnitudes_from_zone(zones, mfd_zones)
-    else:
+    else: # uniform
         aadf["magnitude"] = simulate_magnitudes(
             n_total_aftershocks,
             beta=beta,

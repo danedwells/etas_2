@@ -67,18 +67,55 @@ def estimate_beta_positive(magnitudes: np.ndarray, delta_m: float = 0
 
 
 def simulate_magnitudes(n, beta, mc, m_max=None):
+    """
+    Samples earthquake magnitudes from a truncated (or unbounded) 
+    Gutenberg-Richter (GR) distribution via inverse transform sampling.
+    The GR distribution is exponential in magnitude: P(M > m) = exp(-beta * (m - mc)).
+    Truncation at m_max is handled by renormalising the CDF over [mc, m_max].
+
+    Args:
+        n     : int   — number of magnitudes to sample
+        beta  : float — GR beta parameter (= b * ln(10), where b ≈ 1 typically)
+        mc    : float — magnitude of completeness (lower bound)
+        m_max : float — upper magnitude bound; if None, distribution is unbounded
+
+    Returns:
+        array — sampled magnitudes, all >= mc
+    """
+    # normalisation factor: 1 for unbounded GR, <1 for truncated (compresses
+    # the uniform sample into the CDF range corresponding to [mc, m_max])
     if m_max is not None:
         norm_factor = (1 - np.exp(-beta * (m_max - mc)))
     else:
         norm_factor = 1
+
     mags = np.random.uniform(size=n)
+    # invert the GR CDF: m = mc - ln(1 - u * norm_factor) / beta
     mags = (-1 * np.log(1 - norm_factor * mags) / beta) + mc
     return mags
 
 
 def simulate_magnitudes_from_zone(zones, mfds):
+    """
+    Samples one magnitude per event by drawing from zone-specific
+    magnitude-frequency distributions (MFDs) stored as a discrete CDF table.
+    For each event, a uniform sample is compared against the CDF row for that
+    event's zone; the first magnitude bin where the CDF exceeds the sample is
+    selected (i.e. inverse transform sampling on a discrete distribution).
 
+    Args:
+        zones : array-like — zone index for each event, used to look up the
+                             correct MFD row from the table
+        mfds  : DataFrame  — CDF table with zones as index and magnitude bins
+                             as columns; each row should be a valid CDF (monotone,
+                             ending at 1)
+
+    Returns:
+        array — sampled magnitude bin values, one per event
+    """
     y = np.random.uniform(size=len(zones))
+    # for each event, find the first magnitude bin where the CDF exceeds the
+    # uniform sample — equivalent to inverting the discrete CDF per zone
     mags = (y <= mfds.loc[zones].T).idxmax()
     return mags.values
 
