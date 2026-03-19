@@ -173,7 +173,7 @@ class TestSimulateAftershockRadius:
         self.mc = 3.0
 
     def test_output_shape(self):
-        r = simulate_aftershock_radius(1, 0.5, 1.5, self.mi, self.mc)
+        r = simulate_aftershock_radius(0, 0.5, 1.5, self.mi, self.mc)
         assert r.shape == (1000,)
 
     def test_nonnegative(self):

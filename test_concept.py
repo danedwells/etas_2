@@ -1,5 +1,6 @@
 #%%
 import numpy as np
+import matplotlib.pyplot as plt
 
 def run_etas(mu, A, alpha, c, p, mc, T, seed=42):
     """
@@ -40,7 +41,7 @@ def run_etas(mu, A, alpha, c, p, mc, T, seed=42):
 # --- run it ---
 times, mags = run_etas(
     mu=0.1,    # background rate (events/day)
-    A=0.5,     # aftershock productivity
+    A=0.8,     # aftershock productivity
     alpha=1.5, # magnitude scaling
     c=0.1,    # Omori c (days)
     p=1.1,     # Omori p > 1
@@ -52,4 +53,5 @@ order = np.argsort(times)
 times, mags = times[order], mags[order]
 print(f"Total events: {len(times)}")
 
-#%%
+
+# %%

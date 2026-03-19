@@ -1527,7 +1527,7 @@ class ETASParameterCalculation:
             all_info["fn_dist"] = fn_dist
 
         with open(fn_parameters, "w") as f:
-            f.write(json.dumps(all_info))
+            f.write(json.dumps(all_info, indent=4))
 
     def calculate_distances(self):
         """

@@ -5,7 +5,7 @@ import os
 from etas.plots import ETASFitVisualisation
 
 if __name__ == '__main__':
-    with open("../config/visualisation_config.json", 'r') as f:
+    with open("./config/visualisation_config.json", 'r') as f:
         visualisation_config = json.load(f)
 
     with open(visualisation_config["fn_parameters"], 'r') as f:

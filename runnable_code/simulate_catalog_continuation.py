@@ -29,7 +29,7 @@ if __name__ == '__main__':
     # and forecast duration in days
     # and a path in which the simulation is stored.
 
-    with open('../config/simulate_catalog_continuation_config.json', 'r') as f:
+    with open('./config/simulate_catalog_continuation_config.json', 'r') as f:
         simulation_config = json.load(f)
 
     fn_inversion_output = simulation_config['fn_inversion_output']
