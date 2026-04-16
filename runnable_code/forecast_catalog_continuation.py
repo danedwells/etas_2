@@ -52,7 +52,8 @@ if __name__ == '__main__':
     #                            n_simulations)
 
     store = pd.DataFrame()
-    for chunk in simulation.simulate(forecast_duration, n_simulations):
+    
+    for i,chunk in simulation.simulate(forecast_duration, n_simulations):
         store = pd.concat([store, chunk],
                           ignore_index=False)
 
