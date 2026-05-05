@@ -1,6 +1,6 @@
 {
-  "fn_parameters": "../output_data/parameters_0.json",
-  "data_path": "../output_data/",
+  "fn_parameters": "./output_data/parameters_0.json",
+  "data_path": "./output_data/",
   "magnitudes": {"lower": 3.8, "upper": 6.0},
   "comparison_parameters": {
       "data generating parameters": {

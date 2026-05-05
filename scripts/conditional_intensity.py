@@ -138,16 +138,10 @@ lambda_grid = conditional_intensity_grid(
 
 #%%
 
-from priors import SeismicPrior
 import os
 save_dir = "/home/a01738353/2024_NEHRP/priors/data"
-cstarttime = inversion_config["timewindow_start"]
-cendtime = inversion_config["timewindow_end"]
-md = {'catalog':'example_catalog.csv',
-      'start_time':cstarttime,
-      'end_time':cendtime}
-prior_temp = SeismicPrior.from_etas(lats_flat[mask], lons_flat[mask], lambda_grid, forecast_time=forecast_time, metadata=md)
-prior_temp.to_tt3(os.path.join(save_dir,prior_temp.suggested_filename()))
+filename = f"etas_{forecast_time.strftime('%Y%m%d_%H%M%S')}.tt3"
+save_lambda_grid_tt3(lats_flat[mask], lons_flat[mask], lambda_grid, os.path.join(save_dir, filename))
 
 #save_name = "etas_.tt3"
 

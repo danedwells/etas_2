@@ -1,6 +1,6 @@
 {
-  "fn_catalog": "../input_data/example_catalog.csv",  // input earthquake catalog
-  "data_path": "../output_data/",                      // output directory
+  "fn_catalog": "./input_data/example_catalog.csv",  // input earthquake catalog
+  "data_path": "./output_data/",                      // output directory
   "auxiliary_start": "1971-01-01 00:00:00",           // catalog starts here, but events are only used to condition the model (build up aftershock history) before timewindow_start
   "timewindow_start": "1981-01-01 00:00:00",          // model fitting begins here
   "timewindow_end": "2007-01-01 00:00:00",            // model fitting ends here
@@ -21,6 +21,6 @@
   "mc": 3.6,                     // magnitude of completeness; events below this are not reliably recorded and are excluded
   "delta_m": 0.1,                // magnitude bin width for discretised MFD
   "coppersmith_multiplier": 100, // scales the rupture length estimate (Wells & Coppersmith) to define the spatial radius within which aftershocks are associated to a parent
-  "shape_coords": "../input_data/california_shape.npy", // polygon boundary for the study region (in lat/lon convention used throughout)
+  "shape_coords": "./input_data/california_shape.npy", // polygon boundary for the study region (in lat/lon convention used throughout)
   "id": "0"                      // run identifier
 }

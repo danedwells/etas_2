@@ -1,6 +1,6 @@
 {
-  "fn_catalog": "../input_data/ch_catalog.csv",
-  "data_path": "../output_data/",
+  "fn_catalog": "./input_data/ch_catalog.csv",
+  "data_path": "./output_data/",
   "auxiliary_start": "1992-01-01 00:00:00",
   "timewindow_start": "1997-01-01 00:00:00",
   "timewindow_end": "2022-09-10 00:00:00",
@@ -22,9 +22,9 @@
   "m_max": 7.5,
   "coppersmith_multiplier": 100,
   "earth_radius": 6.3781e3,
-  "shape_coords": "../input_data/ch_rect.npy",
+  "shape_coords": "./input_data/ch_rect.npy",
   "id": "ch",
   "forecast_duration": 30,
-  "fn_store_simulation": "../output_data/simulations_ch.csv",
+  "fn_store_simulation": "./output_data/simulations_ch.csv",
   "n_simulations": 100
 }

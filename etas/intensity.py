@@ -9,13 +9,61 @@ The core equation sums the ETAS triggering kernel contribution from every
 past event to every grid point, then adds the background rate mu.
 """
 
+import datetime
+
 import numpy as np
 
-from etas.inversion import triggering_kernel, parameter_dict2array, to_days, haversine
+from etas.inversion import to_days, haversine
+
+
+def _compute_spatial_weights(grid_lats, grid_lons, lats, lons, mags, theta, mc):
+    """Time-independent (space × magnitude) component of the ETAS kernel.
+
+    Returns (n_grid, n_events) float32.  Caller is responsible for temporal
+    filtering — only pass events that should contribute to the forecast.
+    """
+    k0    = 10 ** theta['log10_k0']
+    d     = 10 ** theta['log10_d']
+    a     = theta['a']
+    gamma = theta['gamma']
+    rho   = theta['rho']
+
+    # NOTE: polygon/grid use (lat, lon) = (y, x) ordering inherited from the
+    # inversion pipeline; haversine expects radian angles in that order.
+    r_sq = np.square(haversine(
+        np.radians(lats)[None, :],       # (1, n_events)
+        np.radians(grid_lats)[:, None],  # (n_grid, 1)
+        np.radians(lons)[None, :],       # (1, n_events)
+        np.radians(grid_lons)[:, None],  # (n_grid, 1)
+    )).astype(np.float32)                # (n_grid, n_events)
+
+    aftershock_n = (k0 * np.exp(a * (mags - mc))).astype(np.float32)               # (n_events,)
+    space_decay  = (1.0 / np.power(
+        r_sq + d * np.exp(gamma * (mags - mc)), 1 + rho,
+    )).astype(np.float32)                                                            # (n_grid, n_events)
+
+    return aftershock_n * space_decay                                                # (n_grid, n_events)
+
+
+def _compute_time_decay(event_times, forecast_time, theta):
+    """Time-dependent component of the ETAS kernel.
+
+    event_times may be a pd.Series or a numpy datetime64 array.
+    Returns (n_events,) float32.
+    """
+    c     = 10 ** theta['log10_c']
+    tau   = 10 ** theta['log10_tau']
+    omega = theta['omega']
+
+    dt = to_days(forecast_time - event_times)
+    if hasattr(dt, 'values'):
+        dt = dt.values
+    return (np.exp(-dt / tau) / np.power(dt + c, 1 + omega)).astype(np.float32)
 
 
 def conditional_intensity_grid(forecast_time, grid_lats, grid_lons,
-                                past_catalog, theta, mc):
+                                past_catalog, theta, mc,
+                                max_lookback_days=None):
     """
     Evaluate the ETAS conditional intensity lambda(x,y,t | H_t) on a grid.
 
@@ -35,6 +83,11 @@ def conditional_intensity_grid(forecast_time, grid_lats, grid_lons,
         'final_parameters').  Must contain 'log10_mu'.
     mc : float
         Reference magnitude of completeness (m_ref from inversion output).
+    max_lookback_days : float or None
+        If given, ignore events older than this many days before forecast_time.
+        None (default) uses the full catalog.  730 days is a reasonable value
+        for most ETAS configurations: Omori power-law decay makes events beyond
+        ~2 years contribute negligibly to the conditional intensity.
 
     Returns
     -------
@@ -48,25 +101,20 @@ def conditional_intensity_grid(forecast_time, grid_lats, grid_lons,
     during inversion) is omitted here — appropriate for prospective evaluation
     where the catalog is assumed complete up to forecast_time.
     """
-    theta_arr = parameter_dict2array(theta)
-    mu = 10 ** theta['log10_mu']
-
+    mu   = 10 ** theta['log10_mu']
     past = past_catalog[past_catalog['time'] < forecast_time]
-    dt = to_days(forecast_time - past['time']).values   # (n_events,)
 
-    # r_sq: (n_grid, n_events) via broadcasting
-    # NOTE: the polygon and grid use (lat, lon) = (y, x) ordering
-    # inherited from the inversion pipeline — haversine expects radians.
-    r_sq = np.square(haversine(
-        np.radians(past['latitude'].values)[None, :],    # (1, n_events)
-        np.radians(grid_lats)[:, None],                  # (n_grid, 1)
-        np.radians(past['longitude'].values)[None, :],   # (1, n_events)
-        np.radians(grid_lons)[:, None],                  # (n_grid, 1)
-    ))   # (n_grid, n_events)
+    if max_lookback_days is not None:
+        cutoff = forecast_time - datetime.timedelta(days=max_lookback_days)
+        past   = past[past['time'] >= cutoff]
 
-    gij = triggering_kernel(
-        [dt[None, :], r_sq, past['magnitude'].values[None, :], None],
-        [theta_arr, mc],
-    )   # (n_grid, n_events)
+    if len(past) == 0:
+        return np.full(len(grid_lats), mu)
 
-    return mu + gij.sum(axis=1)   # (n_grid,)
+    w  = _compute_spatial_weights(
+            grid_lats, grid_lons,
+            past['latitude'].values, past['longitude'].values,
+            past['magnitude'].values, theta, mc)
+    td = _compute_time_decay(past['time'], forecast_time, theta)
+
+    return mu + (w * td).sum(axis=1)   # (n_grid,)
